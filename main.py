@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from model import User
+from model import User, UserLogin
 from database import lifespan
 
 from pymongo.errors import DuplicateKeyError
@@ -28,5 +28,10 @@ async def register_user(user: User):
         raise HTTPException(status_code=400, detail="User already exists")
 
 @app.post("/login")
-def login_user(user: User):
-    return {"message": f"User logged in with mail {user.email}"}
+async def login_user(user: UserLogin):
+    usr = await User.find_one(User.email == user.email, User.password == user.password)
+
+    if not usr:
+        raise HTTPException(status_code=400, detail="Incorrect email or password")
+
+    return {"message": f"User logged in", "username": usr.username, "token": "123456"}

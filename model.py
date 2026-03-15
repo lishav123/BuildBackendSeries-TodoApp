@@ -11,3 +11,7 @@ class Todos(Document):
     task: str
     completed: bool
     user: Link[User]
+
+class UserLogin(BaseModel):
+    email: str
+    password: str
