@@ -1,7 +1,11 @@
 from fastapi import FastAPI
-from model import User, CreateUser
+from starlette.middleware.cors import CORSMiddleware
 
-app = FastAPI()
+from model import User, CreateUser
+from database import lifespan
+
+app = FastAPI(lifespan=lifespan)
+app.add_middleware(CORSMiddleware, allow_origins=["*"])
 
 @app.get("/")
 async def root():

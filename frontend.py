@@ -26,7 +26,6 @@ else:
     task = st.text_input("Enter your task")
     button = st.button("Add the task")
 
-
     with st.sidebar:
         logout = st.button("Logout")
 

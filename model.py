@@ -11,3 +11,6 @@ class Todo(BaseModel):
     id: int
     task: str
     completed: bool
+
+class CreateTodo(BaseModel):
+    task: str
