@@ -4,7 +4,6 @@ from beanie import Document, Link, Indexed
 class User(Document):
     username: str
     email: Indexed(str, unique=True)
-    password: Indexed(str)
     password: str
 
 class Todos(Document):
@@ -19,3 +18,12 @@ class SendTodo(BaseModel):
 class UserLogin(BaseModel):
     email: str
     password: str
+
+class UserRegister(BaseModel):
+    username: str
+    email: str
+    password: str
+
+class TodoUpdate(BaseModel):
+    task: str
+    completed: bool

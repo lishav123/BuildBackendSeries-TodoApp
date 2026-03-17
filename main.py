@@ -1,14 +1,19 @@
 import os
+from beanie import PydanticObjectId
+
 from dotenv import load_dotenv
 import jwt
 
 from fastapi import FastAPI, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.params import Depends
 
-from model import User, UserLogin, Todos, SendTodo
+from model import User, UserLogin, Todos, SendTodo, TodoUpdate, UserRegister
 from database import lifespan
 
 from pymongo.errors import DuplicateKeyError
+
+from security import get_password_hash, verify_password
 
 load_dotenv()
 app = FastAPI(lifespan=lifespan)
@@ -20,18 +25,30 @@ app.add_middleware(
     allow_methods=["*"], # Allows GET, POST, etc.
     allow_headers=["*"], # Allows all headers
 )
+
+def current_user(token: str = Header(None)):
+    if token:
+        try:
+            payload = jwt.decode(token, os.getenv("JWT_SECRECT"), algorithms=["HS256"])
+            return payload["email"]
+        except jwt.InvalidTokenError:
+            raise HTTPException(status_code=400, detail="Invalid token")
+    else:
+        raise HTTPException(status_code=400, detail="Unauthorized")
+
 @app.get("/")
 async def root():
     return {"message": "Hello World"}
 
 @app.post("/register")
-async def register_user(user: User):
+async def register_user(user: UserRegister):
     try:
-        await user.insert()
+        new_user = User(email=user.email, password=get_password_hash(user.password), username=user.username)
+        await new_user.insert()
         return {
             "message": f"User registered",
             "token": jwt.encode({
-                "email": user.email
+                "email": new_user.email
             }, os.getenv("JWT_SECRECT"), algorithm="HS256")
         }
 
@@ -40,9 +57,12 @@ async def register_user(user: User):
 
 @app.post("/login")
 async def login_user(user: UserLogin):
-    usr = await User.find_one(User.email == user.email, User.password == user.password)
+    usr = await User.find_one(User.email == user.email)
 
-    if not usr:
+    if (not usr):
+        raise HTTPException(status_code=400, detail="User not found")
+
+    if (not verify_password(user.password, usr.password)):
         raise HTTPException(status_code=400, detail="Incorrect email or password")
 
     return {
@@ -53,65 +73,67 @@ async def login_user(user: UserLogin):
         }, os.getenv("JWT_SECRECT"), algorithm="HS256")
     }
 
-#
-# @app.post('/todos')
-# async def add_todos(todos: SendTodo, token: str = Header()):
-#
-#     try:
-#         email = jwt.decode(token, os.getenv("JWT_SECRECT"), algorithms=["HS256"])
-#         print(email["email"])
-#         usr = await User.find_one(User.email == email["email"])
-#         print(usr)
-#
-#         if not usr:
-#             raise HTTPException(status_code=400, detail="Unauthorized")
-#
-#         todos = Todos(
-#             task=todos.task,
-#             completed=todos.completed,
-#             user=usr
-#         )
-#
-#         await todos.insert()
-#         return await Todos.find(Todos.user.id == usr.id).to_list()
-#     except jwt.ExpiredSignatureError:
-#         raise HTTPException(status_code=400, detail="Token expired")
-#     except jwt.InvalidTokenError:
-#         raise HTTPException(status_code=400, detail="Invalid token")
-#     except Exception as e:
-#         raise HTTPException(status_code=400, detail=str(e))
-
-
 @app.post('/todos')
-async def add_todos(todo_data: SendTodo, token: str = Header()):  # Renamed to todo_data
+async def add_todos(todo_data: SendTodo, curr_user: str | dict = Depends(current_user)):  # Renamed to todo_data
     try:
-        # Decode token
-        payload = jwt.decode(token, os.getenv("JWT_SECRECT"), algorithms=["HS256"])
-
-        # Find user
-        usr = await User.find_one(User.email == payload["email"])
+        usr = await User.find_one(User.email == curr_user)
 
         if not usr:
             raise HTTPException(status_code=400, detail="Unauthorized")
 
-        # Create new todo
         new_todo = Todos(
             task=todo_data.task,
             completed=todo_data.completed,
             user=usr
         )
 
-        # Insert it
         await new_todo.insert()
 
-        # THE BULLETPROOF QUERY: Bypass Beanie's python operators and use raw MongoDB syntax
-        user_todos = await Todos.find({Todos.user.email: usr.email}).to_list()
-        print(user_todos)
+        user_todos = await Todos.find(Todos.user.id == usr.id).to_list()
         return user_todos
 
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=400, detail="Token expired")
-    except jwt.InvalidTokenError:
-        raise HTTPException(status_code=400, detail="Invalid token")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get('/todos')
+async def get_todos(curr_user: str | dict = Depends(current_user)):
+    usr = await User.find_one(User.email == curr_user)
+
+    if not usr:
+        raise HTTPException(status_code=400, detail="Unauthorized")
+
+    return await Todos.find(Todos.user.id == usr.id).to_list()
+
+@app.put('/todos/{todo_id}')
+async def update_todo(todo_id: PydanticObjectId, todo_data: TodoUpdate, usr: str | dict = Depends(current_user)):
+    try:
+        if type(usr) is not str:
+            raise HTTPException(status_code=400, detail="Unauthorized")
+
+        to_update_todos = await Todos.find_one(Todos.id == todo_id)
+
+        if to_update_todos is None:
+            raise HTTPException(status_code=400, detail="Dosent Exists")
+
+        to_update_todos.task = todo_data.task
+        to_update_todos.completed = todo_data.completed
+        await to_update_todos.save()
+
+        return {"message": "Updated successfully"}
+
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.delete('/todos/{todo_id}')
+async def delete_todo(todo_id: PydanticObjectId, curr_user: str | dict = Depends(current_user)):
+    try:
+        if type(curr_user) is not str:
+            return {"message": "Unauthorized"}
+
+        del_item = await Todos.find_one(Todos.id == todo_id)
+        if del_item is None:
+            raise HTTPException(status_code=400, detail="Dosent Exists")
+        await del_item.delete()
+        return {"message": "deleted successfully"}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
