@@ -12,6 +12,10 @@ class Todos(Document):
     completed: bool
     user: Link[User]
 
+class SendTodo(BaseModel):
+    task: str
+    completed: bool = False
+
 class UserLogin(BaseModel):
     email: str
     password: str
