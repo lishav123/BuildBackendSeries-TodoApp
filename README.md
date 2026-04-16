@@ -17,4 +17,4 @@ This is a simple app
 
 # For Readers
 
-Suggestions are always welcome! 
+Suggestions are always welcome! Thank you!
